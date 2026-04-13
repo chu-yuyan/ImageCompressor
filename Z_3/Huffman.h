@@ -1,23 +1,24 @@
 #pragma once
 #include <queue>
 #include <vector>
-#include <bitset>
-#include<fstream>
+#include <fstream>
+#include <cstdint>
 
-class BitWriter 
+class BitWriter
 {
 private:
     std::ofstream& out;
-    uint8_t buffer;      
-    int bits_in_buffer;   
+    uint8_t buffer;
+    int bits_in_buffer;
+
 public:
     BitWriter(std::ofstream& os) : out(os), buffer(0), bits_in_buffer(0) {}
 
-    void writeBit(bool bit) 
+    void writeBit(bool bit)
     {
-        buffer = (buffer << 1) | (bit ? 1 : 0);
+        buffer = (uint8_t)((buffer << 1) | (bit ? 1 : 0));
         bits_in_buffer++;
-        if (bits_in_buffer == 8) 
+        if (bits_in_buffer == 8)
         {
             out.write(reinterpret_cast<char*>(&buffer), 1);
             buffer = 0;
@@ -25,19 +26,17 @@ public:
         }
     }
 
-    void writeBits(uint32_t bits, int len) 
+    void writeBits(uint32_t bits, int len)
     {
-        for (int i = len - 1; i >= 0; --i) 
-        {
-            writeBit((bits >> i) & 1);
-        }
+        for (int i = len - 1; i >= 0; --i)
+            writeBit(((bits >> i) & 1U) != 0);
     }
 
-    void flush() 
+    void flush()
     {
-        if (bits_in_buffer > 0) 
+        if (bits_in_buffer > 0)
         {
-            buffer <<= (8 - bits_in_buffer);
+            buffer = (uint8_t)(buffer << (8 - bits_in_buffer));
             out.write(reinterpret_cast<char*>(&buffer), 1);
             buffer = 0;
             bits_in_buffer = 0;
@@ -45,57 +44,63 @@ public:
     }
 };
 
-class BitReader {
+class BitReader
+{
 private:
     std::ifstream& in;
     uint8_t buffer;
     int bits_in_buffer;
-public:
-    BitReader(std::ifstream& is) : in(is), buffer(0), bits_in_buffer(0) {}
+    bool ok;
 
-    bool readBit() 
+public:
+    BitReader(std::ifstream& is) : in(is), buffer(0), bits_in_buffer(0), ok(true) {}
+
+    bool good() const { return ok; }
+
+    bool readBit()
     {
-        if (bits_in_buffer == 0) {
-            if (!in.read(reinterpret_cast<char*>(&buffer), 1)) 
+        if (!ok) return false;
+
+        if (bits_in_buffer == 0)
+        {
+            if (!in.read(reinterpret_cast<char*>(&buffer), 1))
             {
+                ok = false;
                 return false;
             }
             bits_in_buffer = 8;
         }
-        bool bit = (buffer >> (bits_in_buffer - 1)) & 1;
+
+        const bool bit = ((buffer >> (bits_in_buffer - 1)) & 1U) != 0;
         bits_in_buffer--;
         return bit;
     }
-
-    uint32_t readBits(int len) 
-    {
-        uint32_t val = 0;
-        for (int i = len - 1; i >= 0; --i) 
-        {
-            val = (val << 1) | (readBit() ? 1 : 0);
-        }
-        return val;
-    }
 };
 
-struct HuffNode {
-    uint8_t byte;          
-    int freq;            
+struct HuffNode
+{
+    uint8_t byte;    
+    uint32_t freq;
+    uint32_t order; 
     HuffNode* left;
     HuffNode* right;
-    HuffNode(uint8_t b, int f) : byte(b), freq(f), left(nullptr), right(nullptr) {}
-    HuffNode(int f, HuffNode* l, HuffNode* r) : byte(0), freq(f), left(l), right(r) {}
+
+    HuffNode(uint8_t b, uint32_t f, uint32_t o) : byte(b), freq(f), order(o), left(nullptr), right(nullptr) {}
+    HuffNode(uint32_t f, uint32_t o, HuffNode* l, HuffNode* r) : byte(0), freq(f), order(o), left(l), right(r) {}
+
+    bool isLeaf() const { return left == nullptr && right == nullptr; }
 };
 
-struct CompareNode 
+struct CompareNode
 {
-    bool operator()(HuffNode* a, HuffNode* b) 
+    bool operator()(const HuffNode* a, const HuffNode* b) const
     {
-        return a->freq > b->freq;
+        if (a->freq != b->freq) return a->freq > b->freq;      
+        return a->order > b->order; 
     }
 };
 
-void deleteTree(HuffNode* root) 
+inline void deleteTree(HuffNode* root)
 {
     if (!root) return;
     deleteTree(root->left);
@@ -103,39 +108,87 @@ void deleteTree(HuffNode* root)
     delete root;
 }
 
-void generateCodes(HuffNode* root, uint32_t code, int len, std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens) 
+inline void generateCodes(HuffNode* root, uint32_t code, int len,
+    std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens)
 {
-    if (!root->left && !root->right) 
+    if (!root) return;
+
+    if (root->isLeaf())
     {
         codes[root->byte] = code;
-        codeLens[root->byte] = len;
+        codeLens[root->byte] = (uint8_t)len;
         return;
     }
-    if (root->left) generateCodes(root->left, code << 1, len + 1, codes, codeLens);
-    if (root->right) generateCodes(root->right, (code << 1) | 1, len + 1, codes, codeLens);
+
+    if (root->left)  generateCodes(root->left, code << 1, len + 1, codes, codeLens);
+    if (root->right) generateCodes(root->right, (code << 1) | 1U, len + 1, codes, codeLens);
 }
 
-HuffNode* buildHuffmanTree(const int freq[256], std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens) {
+inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
+    std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens)
+{
     std::priority_queue<HuffNode*, std::vector<HuffNode*>, CompareNode> pq;
-    for (int i = 0; i < 256; ++i) {
-        if (freq[i] > 0) {
-            pq.push(new HuffNode((uint8_t)i, freq[i]));
-        }
+
+    uint32_t nextOrder = 0;
+    for (int i = 0; i < 256; ++i)
+    {
+        if (freq[i] > 0)
+            pq.push(new HuffNode((uint8_t)i, freq[i], nextOrder++));
     }
-    if (pq.size() == 1) {
+
+    if (pq.empty())
+    {
+        codes.assign(256, 0);
+        codeLens.assign(256, 0);
+        return nullptr;
+    }
+
+    if (pq.size() == 1)
+    {
+        // 只有一个符号时，给它加一个父节点，避免码长为0
         HuffNode* leaf = pq.top(); pq.pop();
-        HuffNode* parent = new HuffNode(leaf->freq, leaf, nullptr);
+        HuffNode* parent = new HuffNode(leaf->freq, nextOrder++, leaf, nullptr);
         pq.push(parent);
     }
-    while (pq.size() > 1) {
+
+    while (pq.size() > 1)
+    {
         HuffNode* a = pq.top(); pq.pop();
         HuffNode* b = pq.top(); pq.pop();
-        HuffNode* parent = new HuffNode(a->freq + b->freq, a, b);
+
+        HuffNode* parent = new HuffNode(a->freq + b->freq, nextOrder++, a, b);
         pq.push(parent);
     }
+
     HuffNode* root = pq.top();
-    codes.resize(256, 0);
-    codeLens.resize(256, 0);
+
+    codes.assign(256, 0);
+    codeLens.assign(256, 0);
     generateCodes(root, 0, 0, codes, codeLens);
     return root;
+}
+
+
+inline bool decodeBytesWithHuffmanTree(BitReader& br, HuffNode* root, BYTE* outData, size_t totalBytes)
+{
+    if (!root) return false;
+
+    size_t written = 0;
+
+    while (written < totalBytes)
+    {
+        HuffNode* cur = root;
+
+        while (cur && !cur->isLeaf())
+        {
+            const bool bit = br.readBit();
+            if (!br.good()) return false;
+            cur = bit ? cur->right : cur->left;
+        }
+
+        if (!cur) return false;
+        outData[written++] = (BYTE)cur->byte;
+    }
+
+    return true;
 }

@@ -30,6 +30,7 @@ public:
 
 	void readPic(LPCSTR);
 	void getData(BYTE *&,UINT &, UINT &);
+	void getTData(BYTE*&, UINT& _x, UINT& _y);
 	void showPic(const BYTE*, const UINT, const UINT);
 private:
 	void init();

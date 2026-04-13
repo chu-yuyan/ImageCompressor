@@ -102,6 +102,33 @@ void PicReader::getData(BYTE*& _out, UINT& _x, UINT& _y) {
 	hFile = NULL;
 }
 
+void PicReader::getTData(BYTE*& _out, UINT& _x, UINT& _y) 
+{
+	HRESULT hr = S_OK;
+
+	// Get the size of Image
+	UINT x, y;
+	hr = m_pConvertedSourceBitmap->GetSize(&x, &y);
+	if (checkHR(hr)) { quitWithError("Check Bitmap Size Failed"); }
+
+	// Create the buffer of pixels, the type of BYTE is unsigned char
+	BYTE* data;
+	data = new BYTE[(size_t)x * y * 4];
+	memset(data, 0, (size_t)x * y * 4);
+
+	// Copy the pixels to the buffer
+	UINT stride = x * 4;
+	hr = m_pConvertedSourceBitmap->CopyPixels(nullptr, stride, x * y * 4, data);
+	if (checkHR(hr)) { quitWithError("Copy Pixels Failed"); }
+
+
+	_out = data; _x = x; _y = y;
+
+	// Close the file handle
+	CloseHandle(hFile);
+	hFile = NULL;
+}
+
 void PicReader::showPic(const BYTE* data, const UINT x, const UINT y) {
 	initgraph(x, y, SHOWCONSOLE);
 	BYTE* buffer = (BYTE*)GetImageBuffer();

@@ -21,12 +21,18 @@
     <ClCompile Include="PicReader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="rle.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PicReader.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="Huffman.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="rle.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
