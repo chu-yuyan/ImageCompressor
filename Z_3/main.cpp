@@ -7,17 +7,14 @@
 #include <cstring>
 using namespace std;
 
-static string makeDatName(const char* name)
-{
-    string namedat = name;
-    size_t dot = namedat.find_last_of('.');
-    if (dot != string::npos) namedat = namedat.substr(0, dot);
-    namedat += ".dat";
-    return namedat;
+void writeU32(ofstream& out, uint32_t v) 
+{ 
+    out.write(reinterpret_cast<const char*>(&v), sizeof(v)); 
 }
-
-static void writeU32(ofstream& out, uint32_t v) { out.write(reinterpret_cast<const char*>(&v), sizeof(v)); }
-static bool readU32(ifstream& in, uint32_t& v) { return (bool)in.read(reinterpret_cast<char*>(&v), sizeof(v)); }
+bool readU32(ifstream& in, uint32_t& v) 
+{ 
+    return (bool)in.read(reinterpret_cast<char*>(&v), sizeof(v)); 
+}
 
 void compress(const char* name)
 {
@@ -27,8 +24,10 @@ void compress(const char* name)
     imread.readPic(name);
     imread.getData(data, x, y);
 
-    const string namedat = makeDatName(name);
-
+    string namedat = name;
+    size_t dot = namedat.find_last_of('.');
+    if (dot != string::npos) namedat = namedat.substr(0, dot);
+    namedat += ".dat";
     ofstream out(namedat, ios::out | ios::binary);
     if (!out)
     {
@@ -37,16 +36,14 @@ void compress(const char* name)
         return;
     }
 
-    // 1) 行优先 planar
-    const vector<uint8_t> planar = rgbaToPlanar(data, x, y);
+    //列优先
+    const vector<uint8_t> planar = rgbaToPlanar(data, x, y);//uint8_t无符号整数刚好 8 位,取值范围：0 ~ 255
 
-    // 2) 差分（新增）
+    //差分
     const vector<uint8_t> diff = diffEncode(planar);
-
-    // 3) RLE（改为对 diff 做）
     const vector<uint8_t> rleData = rleEncode(diff);
 
-    // 4) Huffman（后面全部用 rleData，不变）
+    // Huffman
     uint32_t freq[256]{};
     for (uint8_t b : rleData) freq[b]++;
 
@@ -54,7 +51,7 @@ void compress(const char* name)
     vector<uint8_t> codeLens;
     HuffNode* root = buildHuffmanTree(freq, codes, codeLens);
 
-    // header: magic + x + y + rleSize + freq[256]
+    //magic确认这确实是这个程序写出来的压缩文件
     const uint32_t magic = 0x3152335Au; // 'Z3R1'
     writeU32(out, magic);
     writeU32(out, (uint32_t)x);
@@ -62,9 +59,12 @@ void compress(const char* name)
     writeU32(out, (uint32_t)rleData.size());
     out.write(reinterpret_cast<const char*>(freq), sizeof(freq));
 
+    //写入
     BitWriter bw(out);
     for (uint8_t b : rleData)
+    {
         bw.writeBits(codes[b], codeLens[b]);
+    }
     bw.flush();
 
     out.close();
@@ -115,7 +115,7 @@ void read(const char* name)
     vector<uint8_t> codeLens;
     HuffNode* root = buildHuffmanTree(freq, codes, codeLens);
 
-    // Huffman decode -> rleData
+    // Huffman -> rleData
     vector<uint8_t> rleData((size_t)rleSize);
     BitReader br(in);
     if (!decodeBytesWithHuffmanTree(br, root, (BYTE*)rleData.data(), rleData.size()))
@@ -126,7 +126,7 @@ void read(const char* name)
     }
     deleteTree(root);
 
-    // RLE decode -> diff（大小仍然是 expectedPlanar）
+    // RLE -> diff
     vector<uint8_t> diff;
     const size_t expectedPlanar = (size_t)x32 * y32 * 4;
     if (!rleDecode(rleData, diff, expectedPlanar))
@@ -135,10 +135,10 @@ void read(const char* name)
         return;
     }
 
-    // 反差分（新增）：diff -> planar
+    // diff -> planar
     diffDecodeInplace(diff);
 
-    // planar -> RGBA（这里把 diff 当作 planar 用）
+    // planar -> RGBA
     vector<BYTE> rgba = planarToRgba(diff, (UINT)x32, (UINT)y32);
 
     PicReader imread;

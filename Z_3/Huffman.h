@@ -3,16 +3,17 @@
 #include <vector>
 #include <fstream>
 #include <cstdint>
+using namespace std;
 
 class BitWriter
 {
 private:
-    std::ofstream& out;
+    ofstream& out;
     uint8_t buffer;
     int bits_in_buffer;
 
 public:
-    BitWriter(std::ofstream& os) : out(os), buffer(0), bits_in_buffer(0) {}
+    BitWriter(ofstream& os) : out(os), buffer(0), bits_in_buffer(0) {}
 
     void writeBit(bool bit)
     {
@@ -47,13 +48,13 @@ public:
 class BitReader
 {
 private:
-    std::ifstream& in;
+    ifstream& in;
     uint8_t buffer;
     int bits_in_buffer;
     bool ok;
 
 public:
-    BitReader(std::ifstream& is) : in(is), buffer(0), bits_in_buffer(0), ok(true) {}
+    BitReader(ifstream& is) : in(is), buffer(0), bits_in_buffer(0), ok(true) {}
 
     bool good() const { return ok; }
 
@@ -109,7 +110,7 @@ inline void deleteTree(HuffNode* root)
 }
 
 inline void generateCodes(HuffNode* root, uint32_t code, int len,
-    std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens)
+    vector<uint32_t>& codes,vector<uint8_t>& codeLens)
 {
     if (!root) return;
 
@@ -125,9 +126,9 @@ inline void generateCodes(HuffNode* root, uint32_t code, int len,
 }
 
 inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
-    std::vector<uint32_t>& codes, std::vector<uint8_t>& codeLens)
+    vector<uint32_t>& codes, vector<uint8_t>& codeLens)
 {
-    std::priority_queue<HuffNode*, std::vector<HuffNode*>, CompareNode> pq;
+    priority_queue<HuffNode*, vector<HuffNode*>, CompareNode> pq;
 
     uint32_t nextOrder = 0;
     for (int i = 0; i < 256; ++i)
