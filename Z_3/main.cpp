@@ -43,27 +43,39 @@ void compress(const char* name)
     const vector<uint8_t> diff = diffEncode(planar);
     const vector<uint8_t> rleData = rleEncode(diff);
 
-    // Huffman
+    // Huffman 
     uint32_t freq[256]{};
     for (uint8_t b : rleData) freq[b]++;
 
-    vector<uint32_t> codes;
+    vector<uint32_t> treeCodes;
     vector<uint8_t> codeLens;
-    HuffNode* root = buildHuffmanTree(freq, codes, codeLens);
+    HuffNode* root = buildHuffmanTree(freq, treeCodes, codeLens);
 
-    //magic确认这确实是这个程序写出来的压缩文件
-    const uint32_t magic = 0x3152335Au; // 'Z3R1'
+    // Canonical codes
+    vector<uint32_t> canonCodes;
+    if (!buildCanonicalCodes(codeLens, canonCodes))
+    {
+        cerr << "Failed to build canonical codes." << endl;
+        delete[] data;
+        deleteTree(root);
+        return;
+    }
+
+    // magic：是压缩的
+    const uint32_t magic = 0x3252335Au; // 'Z3R2'
     writeU32(out, magic);
     writeU32(out, (uint32_t)x);
     writeU32(out, (uint32_t)y);
     writeU32(out, (uint32_t)rleData.size());
-    out.write(reinterpret_cast<const char*>(freq), sizeof(freq));
 
-    //写入
+    //写入 256 个 codeLens（256B）
+    out.write(reinterpret_cast<const char*>(codeLens.data()), (streamsize)codeLens.size());
+
+    // 写入
     BitWriter bw(out);
     for (uint8_t b : rleData)
     {
-        bw.writeBits(codes[b], codeLens[b]);
+        bw.writeBits(canonCodes[b], codeLens[b]);
     }
     bw.flush();
 
@@ -93,9 +105,8 @@ void read(const char* name)
     }
 
     uint32_t magic = 0, x32 = 0, y32 = 0, rleSize = 0;
-    uint32_t freq[256]{};
 
-    if (!readU32(in, magic) || magic != 0x3152335Au)
+    if (!readU32(in, magic) || magic != 0x3252335Au)
     {
         cerr << "Bad file magic." << endl;
         return;
@@ -105,17 +116,30 @@ void read(const char* name)
         cerr << "Bad header." << endl;
         return;
     }
-    if (!in.read(reinterpret_cast<char*>(freq), sizeof(freq)))
+
+    // 读 codeLens
+    vector<uint8_t> codeLens(256, 0);
+    if (!in.read(reinterpret_cast<char*>(codeLens.data()), (streamsize)codeLens.size()))
     {
         cerr << "Bad header." << endl;
         return;
     }
 
-    vector<uint32_t> codes;
-    vector<uint8_t> codeLens;
-    HuffNode* root = buildHuffmanTree(freq, codes, codeLens);
+    // canonical rebuild
+    vector<uint32_t> canonCodes;
+    if (!buildCanonicalCodes(codeLens, canonCodes))
+    {
+        cerr << "Bad code lengths (cannot build canonical codes)." << endl;
+        return;
+    }
 
-    // Huffman -> rleData
+    HuffNode* root = buildDecodeTreeFromCanonical(canonCodes, codeLens);
+    if (!root)
+    {
+        cerr << "Failed to build decode tree." << endl;
+        return;
+    }
+
     vector<uint8_t> rleData((size_t)rleSize);
     BitReader br(in);
     if (!decodeBytesWithHuffmanTree(br, root, (BYTE*)rleData.data(), rleData.size()))

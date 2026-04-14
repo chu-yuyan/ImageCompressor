@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <cstdint>
+#include <algorithm>
 using namespace std;
 
 class BitWriter
@@ -169,6 +170,76 @@ inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
     return root;
 }
 
+// Canonical Huffman helpers
+bool buildCanonicalCodes(const vector<uint8_t>& codeLens, vector<uint32_t>& codes)
+{
+    if (codeLens.size() != 256) return false;
+
+    codes.assign(256, 0);
+
+    int maxLen = 0;
+    for (int i = 0; i < 256; i++) maxLen = max(maxLen, (int)codeLens[i]);
+    if (maxLen == 0) return false;
+
+    vector<uint32_t> blCount((size_t)maxLen + 1, 0);
+    for (int i = 0; i < 256; ++i)
+    {
+        const int len = (int)codeLens[i];
+        if (len < 0) return false;
+        if (len > 0) blCount[(size_t)len]++;
+    }
+
+    vector<uint32_t> nextCode((size_t)maxLen + 1, 0);
+    uint32_t code = 0;
+    for (int bits = 1; bits <= maxLen; ++bits)
+    {
+        code = (code + blCount[(size_t)bits - 1]) << 1;
+        nextCode[(size_t)bits] = code;
+    }
+
+    // 排序规则：先按码长升序，再按符号值升序
+    for (int sym = 0; sym < 256; ++sym)
+    {
+        const int len = (int)codeLens[sym];
+        if (len == 0) continue;
+        codes[sym] = nextCode[(size_t)len]++;
+    }
+    return true;
+}
+
+inline HuffNode* buildDecodeTreeFromCanonical(const vector<uint32_t>& codes, const vector<uint8_t>& codeLens)
+{
+    if (codes.size() != 256 || codeLens.size() != 256) return nullptr;
+
+    HuffNode* root = new HuffNode(0u, 0u, nullptr, nullptr);
+
+    for (int sym = 0; sym < 256; ++sym)
+    {
+        const int len = (int)codeLens[sym];
+        if (len == 0) continue;
+
+        HuffNode* cur = root;
+        const uint32_t code = codes[sym];
+
+        for (int i = len - 1; i >= 0; --i)
+        {
+            const bool bit = ((code >> i) & 1U) != 0;
+            HuffNode*& next = bit ? cur->right : cur->left;
+            if (!next)
+            {
+                next = new HuffNode(0u, 0u, nullptr, nullptr);
+            }
+            cur = next;
+        }
+
+        cur->byte = (uint8_t)sym;
+        // leaf 判定用的是左右为空；如果你希望更严格可额外校验“没有重复插入”
+        cur->left = nullptr;
+        cur->right = nullptr;
+    }
+
+    return root;
+}
 
 inline bool decodeBytesWithHuffmanTree(BitReader& br, HuffNode* root, BYTE* outData, size_t totalBytes)
 {
