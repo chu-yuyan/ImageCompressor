@@ -98,7 +98,14 @@ inline vector<uint8_t> rleEncode(const vector<uint8_t>& input)
 
     size_t n = input.size();
     size_t i = 0;
-    while (i < n)
+    while (i < n * 3 / 4 )
+    {
+        const uint8_t v = input[i];
+        out.push_back(v);
+        i ++;
+    }
+    i = n * 3 / 4;
+    while (i >= n * 3 / 4 && i < n)
     {
         const uint8_t v = input[i];
         uint8_t count = 1;
@@ -114,15 +121,19 @@ inline vector<uint8_t> rleEncode(const vector<uint8_t>& input)
 }
 
 //·´rle
-bool rleDecode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expectedSize)
+bool rleDecode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expectedSize,UINT x, UINT y)
 {
     output.clear();
     output.reserve(expectedSize);
 
     if ((rle.size() % 2) != 0)
         return false;
-
-    for (size_t i = 0; i < rle.size(); i += 2)
+    for (size_t i = 0; i < x * y * 3; i ++)
+    {
+        const uint8_t v = rle[i];
+        output.insert(output.end(), 1, v);
+    }
+    for (size_t i = x * y * 3; i < rle.size(); i += 2)
     {
         const uint8_t v = rle[i];
         const uint8_t c = rle[i + 1];

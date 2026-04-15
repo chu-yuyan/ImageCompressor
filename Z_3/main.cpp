@@ -153,7 +153,7 @@ void read(const char* name)
     // RLE -> diff
     vector<uint8_t> diff;
     const size_t expectedPlanar = (size_t)x32 * y32 * 4;
-    if (!rleDecode(rleData, diff, expectedPlanar))
+    if (!rleDecode(rleData, diff, expectedPlanar,(UINT)x32, (UINT)y32))
     {
         cerr << "RLE decode failed." << endl;
         return;
