@@ -52,7 +52,7 @@ inline vector<BYTE> planarToRgba(const vector<uint8_t>& planar, UINT x, UINT y)
 }
 
 //差分编码/解码
-inline vector<uint8_t> diffEncode(const vector<uint8_t>& input)
+inline vector<uint8_t> diffEncode(const vector<uint8_t>& input,UINT x, UINT y)
 {
     vector<uint8_t> out;
     out.resize(input.size());
@@ -60,16 +60,34 @@ inline vector<uint8_t> diffEncode(const vector<uint8_t>& input)
 
     out[0] = input[0];
     for (size_t i = 1; i < input.size(); ++i)
-        out[i] = (uint8_t)((uint8_t)input[i] - (uint8_t)input[i - 1]);
-
+    {
+        if (i < x || (i >= x * y && i < x * y + x) || (i >= 2* x * y && i < 2*x * y + x) || (i >= 3 * x * y && i < 3 * x * y + x) || (i % x == 0))
+        {
+            out[i] = (uint8_t)input[i] ;
+        }
+        else
+        {
+            uint8_t pred = (uint8_t)((uint8_t)input[i - 1] + (uint8_t)input[i - x] - (uint8_t)input[i - x - 1]);
+			out[i] = (uint8_t)((uint8_t)input[i] - pred);
+        }
+    }
     return out;
 }
 
 // 反差分
-void diffDecodeInplace(vector<uint8_t>& data)
+void diffDecodeInplace(vector<uint8_t>& data, UINT x, UINT y)
 {
     for (size_t i = 1; i < data.size(); ++i)
-        data[i] = (uint8_t)((uint8_t)data[i] + (uint8_t)data[i - 1]);
+    {
+        if (i < x || (i >= x * y && i < x * y + x) || (i >= 2 * x * y && i < 2 * x * y + x) || (i >= 3 * x * y && i < 3 * x * y + x) || (i % x == 0))
+        {
+            data[i] = (uint8_t)data[i];
+        }
+        else
+        {
+            data[i] = (uint8_t)((uint8_t)data[i] + (uint8_t)((uint8_t)data[i - 1] + (uint8_t)data[i - x] - (uint8_t)data[i - x - 1]));
+        }
+    }
 }
 
 // rle

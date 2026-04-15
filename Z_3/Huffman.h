@@ -79,20 +79,23 @@ public:
     }
 };
 
+//叶子
 struct HuffNode
 {
-    uint8_t byte;    
+    uint8_t byte;//原来    
     uint32_t freq;
-    uint32_t order; 
+    uint32_t order; //freq一样的话用order
     HuffNode* left;
     HuffNode* right;
 
+    //构造函数
     HuffNode(uint8_t b, uint32_t f, uint32_t o) : byte(b), freq(f), order(o), left(nullptr), right(nullptr) {}
     HuffNode(uint32_t f, uint32_t o, HuffNode* l, HuffNode* r) : byte(0), freq(f), order(o), left(l), right(r) {}
 
     bool isLeaf() const { return left == nullptr && right == nullptr; }
 };
 
+//比较规则
 struct CompareNode
 {
     bool operator()(const HuffNode* a, const HuffNode* b) const
@@ -110,6 +113,7 @@ inline void deleteTree(HuffNode* root)
     delete root;
 }
 
+//读树
 inline void generateCodes(HuffNode* root, uint32_t code, int len,
     vector<uint32_t>& codes,vector<uint8_t>& codeLens)
 {
@@ -126,16 +130,18 @@ inline void generateCodes(HuffNode* root, uint32_t code, int len,
     if (root->right) generateCodes(root->right, (code << 1) | 1U, len + 1, codes, codeLens);
 }
 
+//建树
 inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
     vector<uint32_t>& codes, vector<uint8_t>& codeLens)
 {
+    //排序
     priority_queue<HuffNode*, vector<HuffNode*>, CompareNode> pq;
 
     uint32_t nextOrder = 0;
     for (int i = 0; i < 256; ++i)
     {
         if (freq[i] > 0)
-            pq.push(new HuffNode((uint8_t)i, freq[i], nextOrder++));
+            pq.push(new HuffNode((uint8_t)i, freq[i], nextOrder++));//构造函数
     }
 
     if (pq.empty())
@@ -147,7 +153,7 @@ inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
 
     if (pq.size() == 1)
     {
-        // 只有一个符号时，给它加一个父节点，避免码长为0
+        // 只有一个符号时，给它加一个父节点
         HuffNode* leaf = pq.top(); pq.pop();
         HuffNode* parent = new HuffNode(leaf->freq, nextOrder++, leaf, nullptr);
         pq.push(parent);
@@ -159,7 +165,7 @@ inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
         HuffNode* b = pq.top(); pq.pop();
 
         HuffNode* parent = new HuffNode(a->freq + b->freq, nextOrder++, a, b);
-        pq.push(parent);
+        pq.push(parent);//放入、排序
     }
 
     HuffNode* root = pq.top();
@@ -170,7 +176,7 @@ inline HuffNode* buildHuffmanTree(const uint32_t freq[256],
     return root;
 }
 
-// Canonical Huffman helpers
+//规范化
 bool buildCanonicalCodes(const vector<uint8_t>& codeLens, vector<uint32_t>& codes)
 {
     if (codeLens.size() != 256) return false;
@@ -190,14 +196,14 @@ bool buildCanonicalCodes(const vector<uint8_t>& codeLens, vector<uint32_t>& code
     }
 
     vector<uint32_t> nextCode((size_t)maxLen + 1, 0);
-    uint32_t code = 0;
-    for (int bits = 1; bits <= maxLen; ++bits)
+	uint32_t code = 0;//一个码长的第一个码
+    for (int bits = 1; bits <= maxLen; ++bits)//每个码长
     {
-        code = (code + blCount[(size_t)bits - 1]) << 1;
+		code = (code + blCount[(size_t)bits - 1]) << 1;//前一个码长的最后一个码进一位
         nextCode[(size_t)bits] = code;
     }
 
-    // 排序规则：先按码长升序，再按符号值升序
+	//存储每个符号的码
     for (int sym = 0; sym < 256; ++sym)
     {
         const int len = (int)codeLens[sym];
@@ -207,6 +213,7 @@ bool buildCanonicalCodes(const vector<uint8_t>& codeLens, vector<uint32_t>& code
     return true;
 }
 
+//重建被往右扒拉过的树
 inline HuffNode* buildDecodeTreeFromCanonical(const vector<uint32_t>& codes, const vector<uint8_t>& codeLens)
 {
     if (codes.size() != 256 || codeLens.size() != 256) return nullptr;
@@ -233,7 +240,7 @@ inline HuffNode* buildDecodeTreeFromCanonical(const vector<uint32_t>& codes, con
         }
 
         cur->byte = (uint8_t)sym;
-        // leaf 判定用的是左右为空；如果你希望更严格可额外校验“没有重复插入”
+        
         cur->left = nullptr;
         cur->right = nullptr;
     }
@@ -241,6 +248,7 @@ inline HuffNode* buildDecodeTreeFromCanonical(const vector<uint32_t>& codes, con
     return root;
 }
 
+//读树解码
 inline bool decodeBytesWithHuffmanTree(BitReader& br, HuffNode* root, BYTE* outData, size_t totalBytes)
 {
     if (!root) return false;

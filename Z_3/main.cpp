@@ -40,7 +40,7 @@ void compress(const char* name)
     const vector<uint8_t> planar = rgbaToPlanar(data, x, y);//uint8_t无符号整数刚好 8 位,取值范围：0 ~ 255
 
     //差分
-    const vector<uint8_t> diff = diffEncode(planar);
+    const vector<uint8_t> diff = diffEncode(planar, x, y);
     const vector<uint8_t> rleData = rleEncode(diff);
 
     // Huffman 
@@ -160,7 +160,7 @@ void read(const char* name)
     }
 
     // diff -> planar
-    diffDecodeInplace(diff);
+    diffDecodeInplace(diff, x32 , y32);
 
     // planar -> RGBA
     vector<BYTE> rgba = planarToRgba(diff, (UINT)x32, (UINT)y32);
