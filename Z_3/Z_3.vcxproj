@@ -24,6 +24,7 @@
     <ClCompile Include="rle.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DCT.h" />
     <ClInclude Include="Huffman.h" />
     <ClInclude Include="PicReader.h" />
     <ClInclude Include="rle.h" />

@@ -35,5 +35,8 @@
     <ClInclude Include="rle.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="DCT.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
