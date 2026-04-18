@@ -75,7 +75,7 @@ inline vector<uint8_t> diffEncode(const vector<uint8_t>& input,UINT x, UINT y)
 }
 
 // 反差分
-void diffDecodeInplace(vector<uint8_t>& data, UINT x, UINT y)
+inline void diffDecodeInplace(vector<uint8_t>& data, UINT x, UINT y)
 {
     for (size_t i = 1; i < data.size(); ++i)
     {
@@ -90,7 +90,7 @@ void diffDecodeInplace(vector<uint8_t>& data, UINT x, UINT y)
     }
 }
 
-// rle
+// rle最后一列
 inline vector<uint8_t> rleEncode(const vector<uint8_t>& input)
 {
     vector<uint8_t> out;
@@ -119,9 +119,32 @@ inline vector<uint8_t> rleEncode(const vector<uint8_t>& input)
     }
     return out;
 }
+// rle
+inline vector<uint8_t> rlecode(const vector<uint8_t>& input)
+{
+    vector<uint8_t> out;
+    out.reserve(input.size());
 
-//反rle
-bool rleDecode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expectedSize,UINT x, UINT y)
+    size_t n = input.size();
+    size_t i = 0;
+    while (i < n)
+    {
+        const uint8_t v = input[i];
+        uint8_t count = 1;
+
+        while (i + count < n && input[i + count] == v && count < 255)
+            count++;
+
+        out.push_back(v);
+        out.push_back(count);
+        i += count;
+    }
+    return out;
+}
+
+
+//反rle最后一列
+inline bool rleDecode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expectedSize,UINT x, UINT y)
 {
     output.clear();
     output.reserve(expectedSize);
@@ -134,6 +157,28 @@ bool rleDecode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expec
         output.insert(output.end(), 1, v);
     }
     for (size_t i = x * y * 3; i < rle.size(); i += 2)
+    {
+        const uint8_t v = rle[i];
+        const uint8_t c = rle[i + 1];
+        if (c == 0) return false;
+
+        if (output.size() + c > expectedSize)
+            return false;
+
+        output.insert(output.end(), (size_t)c, v);
+    }
+
+    return output.size() == expectedSize;
+}
+//反rle
+inline bool rleDcode(const vector<uint8_t>& rle, vector<uint8_t>& output, size_t expectedSize, UINT x, UINT y)
+{
+    output.clear();
+    output.reserve(expectedSize);
+
+    if ((rle.size() % 2) != 0)
+        return false;
+    for (size_t i = 0; i < rle.size(); i += 2)
     {
         const uint8_t v = rle[i];
         const uint8_t c = rle[i + 1];

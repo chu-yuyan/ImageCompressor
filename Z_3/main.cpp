@@ -7,6 +7,7 @@
 #include <fstream>  
 #include <cstring>
 #include <array>
+#include<algorithm>
 using namespace std;
 
 void writeU32(ofstream& out, uint32_t v) 
@@ -127,7 +128,7 @@ void read(const char* name)
         cerr << "Bad header." << endl;
         return;
     }
-    // canonical rebuild
+    //建树
     vector<uint32_t> canonCodes;
     if (!buildCanonicalCodes(codeLens, canonCodes))
     {
@@ -191,61 +192,67 @@ void Lcompress(const char* name)
         return;
     }
 
-    // DCT + quantize -> int16 coeffs -> bytes -> RLE -> Huffman
+    //分开读
     const vector<uint8_t> planar = rgbaToPlanar(data, x, y);
     const size_t pixels = (size_t)x * y;
-    const uint8_t* chans[4] = {
-        planar.data() + pixels * 0,
-        planar.data() + pixels * 1,
-        planar.data() + pixels * 2,
-        planar.data() + pixels * 3
-    };
+    const uint8_t* chans[3] = {planar.data() + pixels * 0, planar.data() + pixels * 1, planar.data() + pixels * 2};
 
-    const uint32_t quality = 50; // fixed quality (1..100)
+    //分块8*8
+    const uint32_t quality = 50;
     const UINT blocksX = (x + 7) / 8;
     const UINT blocksY = (y + 7) / 8;
     const size_t blocks = (size_t)blocksX * blocksY;
-    const size_t coeffCount = blocks * 4 * 64; // int16 count
 
-    vector<int16_t> coeffs;
-    coeffs.resize(coeffCount);
+	//每个块的DC差分/AC的run-level
+    vector<uint8_t> payload;
+    payload.reserve(blocks * 6 * 4);
+
+    
+    int16_t prevDC[3] = {0,0,0};
 
     uint8_t block[64];
-    size_t coeffPos = 0;
-    for (int c = 0; c < 4; ++c)
+    for (int c = 0; c < 3; ++c)
     {
         for (UINT by = 0; by < blocksY; ++by)
         {
             for (UINT bx = 0; bx < blocksX; ++bx)
             {
-                for (int yy = 0; yy < 8; ++yy)
+                for (int yy = 0; yy < 8; yy++)
                 {
                     const UINT py = (by * 8 + (UINT)yy < y) ? (by * 8 + (UINT)yy) : (y - 1);
-                    for (int xx = 0; xx < 8; ++xx)
+                    for (int xx = 0; xx < 8; xx++)
                     {
                         const UINT px = (bx * 8 + (UINT)xx < x) ? (bx * 8 + (UINT)xx) : (x - 1);
                         block[yy * 8 + xx] = chans[c][(size_t)py * x + px];
                     }
                 }
+				// DCT -> quant -> zigzag
+                auto F = forward8x8(block);
+                auto Q = quantize(F, (int)quality);
+                auto zig = zigzagScan(Q);
 
-                auto F = dct::forward8x8(block);
-                auto Q = dct::quantize(F, (int)quality);
-                for (int k = 0; k < 64; ++k)
-                    coeffs[coeffPos++] = Q[(size_t)k];
+                // DC
+                int16_t dc = zig[0];
+                int16_t diff = dc - prevDC[c];
+                prevDC[c] = dc;
+                payload.push_back((uint8_t)(diff & 0xFF));
+                payload.push_back((uint8_t)((diff >> 8) & 0xFF));
+
+                // AC
+                auto rl = encodeBlockAC(zig);
+                for (const auto& e : rl)
+                {
+                    payload.push_back(e.run);
+                    payload.push_back((uint8_t)(e.level & 0xFF));
+                    payload.push_back((uint8_t)((e.level >> 8) & 0xFF));
+                }
             }
         }
     }
 
-    // reinterpret int16 coeffs as bytes for entropy coding
-    const uint8_t* coeffBytes = reinterpret_cast<const uint8_t*>(coeffs.data());
-    const size_t coeffBytesSize = coeffs.size() * sizeof(int16_t);
-    vector<uint8_t> coeffByteVec(coeffBytes, coeffBytes + coeffBytesSize);
-
-    // RLE then Huffman (reuse existing helpers)
-    const vector<uint8_t> rleData = rleEncode(coeffByteVec);
-
+    // Huffman encode payload
     uint32_t freq[256]{};
-    for (uint8_t b : rleData) freq[b]++;
+    for (uint8_t b : payload) freq[b]++;
 
     vector<uint32_t> treeCodes;
     vector<uint8_t> codeLens;
@@ -260,20 +267,19 @@ void Lcompress(const char* name)
         return;
     }
 
-    // Header for lossy DCT stream
-    // magic + x + y + quality + expectedCoeffBytes + rleSize + 256 code lengths
+    // magic + x + y + quality + payloadBytes + payloadBytes (second field reused) + 256 code lengths
     const uint32_t magic = 0x5443445Au; // 'ZDCT'
     writeU32(out, magic);
     writeU32(out, (uint32_t)x);
     writeU32(out, (uint32_t)y);
     writeU32(out, quality);
-    writeU32(out, (uint32_t)coeffBytesSize);
-    writeU32(out, (uint32_t)rleData.size());
+    writeU32(out, (uint32_t)payload.size());
+    writeU32(out, (uint32_t)payload.size());
 
     out.write(reinterpret_cast<const char*>(codeLens.data()), (streamsize)codeLens.size());
 
     BitWriter bw(out);
-    for (uint8_t b : rleData)
+    for (uint8_t b : payload)
         bw.writeBits(canonCodes[b], codeLens[b]);
     bw.flush();
 
@@ -288,7 +294,7 @@ void Lcompress(const char* name)
     const size_t originalBytes = (size_t)x * y * 4;
     cout << "Output file: " << namedat << endl;
     cout << "Original size: " << originalBytes << " bytes" << endl;
-    cout << "RLE size: " << rleData.size() << " bytes" << endl;
+    cout << "Payload size: " << payload.size() << " bytes" << endl;
     cout << "Compressed size: " << compressedSize << " bytes" << endl;
     cout << "Compression ratio: " << (double)compressedSize / (double)originalBytes << endl;
 }
@@ -302,13 +308,13 @@ void Lread(const char* name)
         return;
     }
 
-    uint32_t magic = 0, x32 = 0, y32 = 0, quality = 0, coeffBytesSize32 = 0, rleSize32 = 0;
+    uint32_t magic = 0, x32 = 0, y32 = 0, quality = 0, payloadSize32 = 0, payloadSize32b = 0;
     if (!readU32(in, magic) || magic != 0x5443445Au)
     {
         cerr << "Bad file magic." << endl;
         return;
     }
-    if (!readU32(in, x32) || !readU32(in, y32) || !readU32(in, quality) || !readU32(in, coeffBytesSize32) || !readU32(in, rleSize32))
+    if (!readU32(in, x32) || !readU32(in, y32) || !readU32(in, quality) || !readU32(in, payloadSize32) || !readU32(in, payloadSize32b))
     {
         cerr << "Bad header." << endl;
         return;
@@ -335,9 +341,10 @@ void Lread(const char* name)
         return;
     }
 
-    vector<uint8_t> rleData((size_t)rleSize32);
+    const size_t payloadSize = (size_t)payloadSize32;
+    vector<uint8_t> payload(payloadSize);
     BitReader br(in);
-    if (!decodeBytesWithHuffmanTree(br, root, (BYTE*)rleData.data(), rleData.size()))
+    if (!decodeBytesWithHuffmanTree(br, root, (BYTE*)payload.data(), payload.size()))
     {
         cerr << "Decode failed (EOF / corrupt stream)." << endl;
         deleteTree(root);
@@ -345,56 +352,67 @@ void Lread(const char* name)
     }
     deleteTree(root);
 
-    vector<uint8_t> coeffBytes;
-    if (!rleDecode(rleData, coeffBytes, (size_t)coeffBytesSize32, (UINT)x32, (UINT)y32))
-    {
-        cerr << "RLE decode failed." << endl;
-        return;
-    }
-
-    if (coeffBytes.size() != (size_t)coeffBytesSize32 || (coeffBytes.size() % sizeof(int16_t)) != 0)
-    {
-        cerr << "Bad coeff payload." << endl;
-        return;
-    }
-
+    // Parse payload into blocks
     const UINT x = (UINT)x32;
     const UINT y = (UINT)y32;
     const size_t pixels = (size_t)x * y;
+    //alpha set to 255
     vector<uint8_t> planar(pixels * 4, 255);
-    uint8_t* chans[4] = {
+    uint8_t* chans[3] = {
         planar.data() + pixels * 0,
         planar.data() + pixels * 1,
-        planar.data() + pixels * 2,
-        planar.data() + pixels * 3
+        planar.data() + pixels * 2
     };
 
     const UINT blocksX = (x + 7) / 8;
     const UINT blocksY = (y + 7) / 8;
 
-    const int16_t* coeffs = reinterpret_cast<const int16_t*>(coeffBytes.data());
-    const size_t coeffCount = coeffBytes.size() / sizeof(int16_t);
-
-    size_t coeffPos = 0;
+    size_t payloadPos = 0;
+    int16_t prevDC[3] = {0,0,0};
     uint8_t outBlock[64];
-    for (int c = 0; c < 4; ++c)
+    
+	// 逐通道逐块解码
+    for (int c = 0; c < 3; ++c)
     {
         for (UINT by = 0; by < blocksY; ++by)
         {
             for (UINT bx = 0; bx < blocksX; ++bx)
             {
-                if (coeffPos + 64 > coeffCount)
+                if (payloadPos + 2 > payload.size()) { cerr << "Payload truncated (DC)." << endl; return; }
+                int16_t dc_diff = (int16_t)((int16_t)payload[payloadPos] | ((int16_t)payload[payloadPos+1] << 8));
+                payloadPos += 2;
+                int16_t dc = prevDC[c] + dc_diff;
+                prevDC[c] = dc;
+
+                std::array<int16_t,64> zig{};
+                zig[0] = dc;
+                int idx = 1;
+                while (idx < 64)
                 {
-                    cerr << "Bad coeff stream." << endl;
-                    return;
+                    if (payloadPos + 3 > payload.size()) { cerr << "Payload truncated (AC)." << endl; return; }
+                    uint8_t run = payload[payloadPos++];
+                    int16_t level = (int16_t)((int16_t)payload[payloadPos] | ((int16_t)payload[payloadPos+1] << 8));
+                    payloadPos += 2;
+                    // EOB
+                    if (run == 0 && level == 0)
+                    {
+                        break;
+                    }
+                    if (run == 255 && level == 0)
+                    {
+                        int toSkip = min(255, 64 - idx);
+                        idx += toSkip;
+                        continue;
+                    }
+                    idx += run;
+                    if (idx >= 64) { cerr << "Run overflow." << endl; return; }
+                    zig[(size_t)idx] = level;
+                    idx++;
                 }
 
-                std::array<int16_t, 64> Q{};
-                for (int k = 0; k < 64; ++k)
-                    Q[(size_t)k] = coeffs[coeffPos++];
-
-                auto F = dct::dequantize(Q, (int)quality);
-                dct::inverse8x8(F, outBlock);
+                auto Q = inverseZigzagScan(zig);
+                auto F = dequantize(Q, (int)quality);
+                inverse8x8(F, outBlock);
 
                 for (int yy = 0; yy < 8; ++yy)
                 {
@@ -424,22 +442,22 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    if (strcmp(argv[1], "-compress") == 0)
+    if (strcmp(argv[1], "-compress_lossless") == 0)
     {
         cout << "Compressing " << argv[2] << "..." << endl;
         compress(argv[2]);
     }
-    else if (strcmp(argv[1], "-read") == 0)
+    else if (strcmp(argv[1], "-read_lossless") == 0)
     {
         cout << "Reading " << argv[2] << "..." << endl;
         read(argv[2]);
     }
-    else if (strcmp(argv[1], "-lossyC") == 0)
+    else if (strcmp(argv[1], "-compress") == 0)
     {
         cout << "Compressing" << argv[2] << "..." << endl;
         Lcompress(argv[2]);
     }
-    else if (strcmp(argv[1], "-lossyR") == 0)
+    else if (strcmp(argv[1], "-read") == 0)
     {
         cout << "Reading " << argv[2] << "..." << endl;
         Lread(argv[2]);

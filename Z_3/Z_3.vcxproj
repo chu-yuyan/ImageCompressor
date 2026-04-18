@@ -21,7 +21,6 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PicReader.cpp" />
-    <ClCompile Include="rle.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DCT.h" />
